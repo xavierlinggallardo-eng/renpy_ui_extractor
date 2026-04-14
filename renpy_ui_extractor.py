@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
 Renpy UI Extractor + Auto-Translate
-================================
+====================================
 Extrae y traduce textos de UI/menús/screens que Zenpy NO traduce.
 
-Motores disponibles:
-  - DeepL (--deepl KEY) - Mejor calidad, 500k chars/mes gratis
-  - Google (--google) - Completamente gratis
+Interfaz GUI: python renpy_ui_extractor.py --gui
 
 Motores disponibles:
   - DeepLX (--deeplx) - Completamente gratis, sin API key
@@ -14,9 +12,10 @@ Motores disponibles:
   - Google (--google) - Completamente gratis
 
 Usage:
-    python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --deeplx
-    python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --google
-    python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --deepl TU_KEY
+    python renpy_ui_extractor.py --gui          # GUI
+    python renpy_ui_extractor.py "path/to/game" "es" --deeplx
+    python renpy_ui_extractor.py "path/to/game" "es" --google
+    python renpy_ui_extractor.py "path/to/game" "es" --deepl TU_KEY
 """
 
 import os
@@ -24,6 +23,9 @@ import re
 import sys
 import time
 import argparse
+import threading
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 
 # DeepL
@@ -51,11 +53,7 @@ GOOGLE_LANG_MAP = {
     'pt': 'pt', 'ja': 'ja', 'ko': 'ko', 'zh': 'zh', 'ru': 'ru'
 }
 
-DEEPLX_ENDPOINTS = [
-    "https://deeplx.xi-xu.me/translate",
-    "https://dplx.xi-xu.me/translate",
-    "https://deeplx.owo.network/translate",
-]
+DEEPLX_ENDPOINT = "http://localhost:1188/translate"
 
 DEEPLX_LANG_MAP = {
     'es': 'ES', 'en': 'EN', 'fr': 'FR', 'de': 'DE', 'it': 'IT',
@@ -196,7 +194,7 @@ class DeepLXTranslator:
     """Traductor DeepLX gratuito (sin API key)"""
     
     def __init__(self, endpoint=None):
-        self.endpoint = endpoint or DEEPLX_ENDPOINTS[0]
+        self.endpoint = endpoint or DEEPLX_ENDPOINT
         print(f"Usando DeepLX: {self.endpoint}")
     
     def translate(self, texts, target_lang):
@@ -305,21 +303,204 @@ def generate_translation_file(results, out_path, lang):
     return out
 
 
+class GUIController:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Renpy UI Extractor")
+        self.root.geometry("600x500")
+        self.root.resizable(False, False)
+        
+        self.game_path = tk.StringVar(value=os.getcwd())
+        self.target_lang = tk.StringVar(value="es")
+        self.engine = tk.StringVar(value="deeplx")
+        self.deeplx_endpoint = tk.StringVar(value=DEEPLX_ENDPOINT)
+        self.status = tk.StringVar(value="Listo")
+        self.progress = tk.DoubleVar(value=0)
+        
+        self._build_ui()
+    
+    def _build_ui(self):
+        main_frame = ttk.Frame(self.root, padding=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(main_frame, text="📁 Ruta del Juego:", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
+        path_frame = ttk.Frame(main_frame)
+        path_frame.pack(fill=tk.X, pady=(0,15))
+        ttk.Entry(path_frame, textvariable=self.game_path, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(path_frame, text="📂", command=self._browse_folder, width=5).pack(side=tk.LEFT, padx=(5,0))
+        
+        ttk.Label(main_frame, text="🌍 Idioma objetivo:", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
+        lang_frame = ttk.Frame(main_frame)
+        lang_frame.pack(fill=tk.X, pady=(0,15))
+        for code, name in [("es","Español"),("en","English"),("fr","Français"),("de","Deutsch"),("it","Italiano"),("pt","Português"),("ja","日本語"),("ko","한국어"),("zh","中文")]:
+            ttk.Radiobutton(lang_frame, text=name, value=code, variable=self.target_lang).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(main_frame, text="🔧 Motor de traducción:", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
+        engine_frame = ttk.Frame(main_frame)
+        engine_frame.pack(fill=tk.X, pady=(0,10))
+        ttk.Radiobutton(engine_frame, text="DeepLX (gratis)", value="deeplx", variable=self.engine, command=self._toggle_endpoint).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(engine_frame, text="Google (gratis)", value="google", variable=self.engine, command=self._toggle_endpoint).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(engine_frame, text="DeepL (API)", value="deepl", variable=self.engine, command=self._toggle_endpoint).pack(side=tk.LEFT, padx=5)
+        
+        self.endpoint_frame = ttk.Frame(main_frame)
+        self.endpoint_frame.pack(fill=tk.X, pady=(0,15))
+        ttk.Label(self.endpoint_frame, text="Endpoint:").pack(side=tk.LEFT)
+        ttk.Entry(self.endpoint_frame, textvariable=self.deeplx_endpoint, width=45).pack(side=tk.LEFT, padx=5)
+        
+        self.deepl_key_frame = ttk.Frame(main_frame)
+        self.deepl_key_frame.pack(fill=tk.X, pady=(0,15))
+        ttk.Label(self.deepl_key_frame, text="DeepL Key:").pack(side=tk.LEFT)
+        self.deepl_key_var = tk.StringVar()
+        ttk.Entry(self.deepl_key_frame, textvariable=self.deepl_key_var, width=40, show="*").pack(side=tk.LEFT, padx=5)
+        self._toggle_endpoint()
+        
+        self.progress_bar = ttk.Progressbar(main_frame, variable=self.progress, maximum=100)
+        self.progress_bar.pack(fill=tk.X, pady=(10,5))
+        
+        self.status_label = ttk.Label(main_frame, textvariable=self.status, font=("Arial", 10))
+        self.status_label.pack(anchor=tk.W, pady=(0,15))
+        
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="🚀 Extraer y Traducir", command=self._start_translation, style="Accent.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="📄 Solo Extraer", command=self._extract_only).pack(side=tk.LEFT, padx=5)
+        
+        style = ttk.Style()
+        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
+    
+    def _toggle_endpoint(self):
+        if self.engine.get() == "deeplx":
+            self.endpoint_frame.pack(fill=tk.X, pady=(0,15))
+            self.deepl_key_frame.pack_forget()
+        elif self.engine.get() == "deepl":
+            self.endpoint_frame.pack_forget()
+            self.deepl_key_frame.pack(fill=tk.X, pady=(0,15))
+        else:
+            self.endpoint_frame.pack_forget()
+            self.deepl_key_frame.pack_forget()
+    
+    def _browse_folder(self):
+        folder = filedialog.askdirectory(initialdir=self.game_path.get())
+        if folder:
+            self.game_path.set(folder)
+    
+    def _start_translation(self):
+        if not self.game_path.get():
+            messagebox.showerror("Error", "Selecciona la ruta del juego")
+            return
+        
+        self.status.set("Extrayendo textos...")
+        self.progress.set(10)
+        self.root.update()
+        
+        thread = threading.Thread(target=self._translate_worker)
+        thread.daemon = True
+        thread.start()
+    
+    def _translate_worker(self):
+        try:
+            game_path = self.game_path.get()
+            target_lang = self.target_lang.get()
+            
+            ext = RenpyUIExtractor(game_path)
+            ext.extract()
+            
+            if not ext.results:
+                self.root.after(0, lambda: self.status.set("No se encontraron textos"))
+                return
+            
+            self.root.after(0, lambda: self.status.set(f"Traduciendo {len(ext.results)} textos..."))
+            self.root.after(0, lambda: self.progress.set(30))
+            
+            texts = [d['original'] for d in ext.results.values()]
+            translations = {}
+            
+            engine = self.engine.get()
+            if engine == "deeplx":
+                translator = DeepLXTranslator(self.deeplx_endpoint.get())
+                translations = translator.translate(texts, target_lang)
+            elif engine == "google":
+                if not GOOGLE_OK:
+                    self.root.after(0, lambda: messagebox.showerror("Error", "googletrans no instalado"))
+                    return
+                translator = GoogleTranslatorFree()
+                translations = translator.translate(texts, target_lang)
+            elif engine == "deepl":
+                if not DEEPL_OK:
+                    self.root.after(0, lambda: messagebox.showerror("Error", "deepl no instalado"))
+                    return
+                if not self.deepl_key_var.get():
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Ingresa tu API Key de DeepL"))
+                    return
+                translator = DeepLTranslator(self.deepl_key_var.get())
+                translations = translator.translate(texts, target_lang)
+            
+            for key, data in ext.results.items():
+                orig = data['original']
+                if orig in translations:
+                    data['translated'] = translations[orig]
+            
+            lang_name = {"es":"spanish","en":"english","fr":"french","de":"german","it":"italian","pt":"portuguese","ja":"japanese","ko":"korean","zh":"chinese"}.get(target_lang, target_lang)
+            out_path = os.path.join(game_path, f"game/tl/{target_lang}/strings.rpy")
+            generate_translation_file(ext.results, out_path, lang_name)
+            
+            self.root.after(0, lambda: self.progress.set(100))
+            self.root.after(0, lambda: self.status.set(f"✅ Completado! {len(ext.results)} textos traducidos"))
+            self.root.after(0, lambda: messagebox.showinfo("Éxito", f"Traducción generada:\n{out_path}"))
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.status.set(f"❌ Error: {str(e)}"))
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+    
+    def _extract_only(self):
+        if not self.game_path.get():
+            messagebox.showerror("Error", "Selecciona la ruta del juego")
+            return
+        
+        self.status.set("Extrayendo textos...")
+        self.root.update()
+        
+        ext = RenpyUIExtractor(self.game_path.get())
+        ext.extract()
+        
+        lang = self.target_lang.get()
+        lang_name = {"es":"spanish","en":"english","fr":"french","de":"german","it":"italian","pt":"portuguese","ja":"japanese","ko":"korean","zh":"chinese"}.get(lang, lang)
+        out_path = os.path.join(self.game_path.get(), f"game/tl/{lang}/strings.rpy")
+        generate_translation_file(ext.results, out_path, lang_name)
+        
+        self.status.set(f"✅ {len(ext.results)} textos extraídos")
+        messagebox.showinfo("Éxito", f"Archivo generado:\n{out_path}")
+
+
+def run_gui():
+    root = tk.Tk()
+    app = GUIController(root)
+    root.mainloop()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Renpy UI Extractor + Auto-Translate'
     )
-    parser.add_argument('game_path', help='Ruta al juego')
-    parser.add_argument('lang', help='Código de idioma (es, en, fr...)')
+    parser.add_argument('--gui', action='store_true',
+                    help='Abrir interfaz GUI')
+    parser.add_argument('game_path', nargs='?', help='Ruta al juego')
+    parser.add_argument('lang', nargs='?', help='Código de idioma (es, en, fr...)')
     parser.add_argument('--deepl', nargs='?', const='deepl', metavar='KEY',
                     help='API Key de DeepL (o variable DEEPL_KEY)')
     parser.add_argument('--deeplx', action='store_true',
                     help='Usar DeepLX (gratis, sin API key)')
+    parser.add_argument('--endpoint', default=DEEPLX_ENDPOINT,
+                    help='Endpoint de DeepLX')
     parser.add_argument('--google', action='store_true',
                     help='Usar Google Translate (gratis)')
     parser.add_argument('--output', '-o', help='Ruta de salida')
     
     args = parser.parse_args()
+    
+    if args.gui or (not args.game_path and not args.lang):
+        run_gui()
+        return
     
     # Get DeepL key
     deepl_key = None
@@ -356,7 +537,7 @@ def main():
     if args.deeplx:
         # DeepLX (gratis, sin API key)
         print(f"\nUsando DeepLX (gratis)...")
-        translator = DeepLXTranslator()
+        translator = DeepLXTranslator(args.endpoint)
         texts = [d['original'] for d in ext.results.values()]
         translations = translator.translate(texts, args.lang)
         
