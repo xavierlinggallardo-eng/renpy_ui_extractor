@@ -8,13 +8,15 @@ Motores disponibles:
   - DeepL (--deepl KEY) - Mejor calidad, 500k chars/mes gratis
   - Google (--google) - Completamente gratis
 
+Motores disponibles:
+  - DeepLX (--deeplx) - Completamente gratis, sin API key
+  - DeepL (--deepl KEY) - Mejor calidad, 500k chars/mes gratis
+  - Google (--google) - Completamente gratis
+
 Usage:
+    python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --deeplx
     python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --google
     python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --deepl TU_KEY
-    
-    # Con variable de entorno:
-    export DEEPL_KEY="tu-key"
-    python renpy_ui_extractor.py "C:/Games/Being a DIK" "es" --deepl
 """
 
 import os
@@ -47,6 +49,17 @@ LANG_MAP = {
 GOOGLE_LANG_MAP = {
     'es': 'es', 'en': 'en', 'fr': 'fr', 'de': 'de', 'it': 'it',
     'pt': 'pt', 'ja': 'ja', 'ko': 'ko', 'zh': 'zh', 'ru': 'ru'
+}
+
+DEEPLX_ENDPOINTS = [
+    "https://deeplx.xi-xu.me/translate",
+    "https://dplx.xi-xu.me/translate",
+    "https://deeplx.owo.network/translate",
+]
+
+DEEPLX_LANG_MAP = {
+    'es': 'ES', 'en': 'EN', 'fr': 'FR', 'de': 'DE', 'it': 'IT',
+    'pt': 'PT', 'ja': 'JA', 'ko': 'KO', 'zh': 'ZH', 'ru': 'RU'
 }
 
 
@@ -179,6 +192,56 @@ class DeepLTranslator:
         return results
 
 
+class DeepLXTranslator:
+    """Traductor DeepLX gratuito (sin API key)"""
+    
+    def __init__(self, endpoint=None):
+        self.endpoint = endpoint or DEEPLX_ENDPOINTS[0]
+        print(f"Usando DeepLX: {self.endpoint}")
+    
+    def translate(self, texts, target_lang):
+        import urllib.request
+        import urllib.parse
+        import json
+        
+        results = {}
+        target = DEEPLX_LANG_MAP.get(target_lang, target_lang.upper())
+        
+        print(f"Traduciendo {len(texts)} textos con DeepLX (gratis)...")
+        
+        for i, text in enumerate(texts):
+            try:
+                data = json.dumps({
+                    "text": text,
+                    "source_lang": "EN",
+                    "target_lang": target
+                }).encode('utf-8')
+                
+                req = urllib.request.Request(
+                    self.endpoint,
+                    data=data,
+                    headers={'Content-Type': 'application/json'}
+                )
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    result = json.loads(response.read())
+                    if result.get('code') == 200:
+                        results[text] = result.get('data', text)
+                    else:
+                        results[text] = text
+                
+                if (i + 1) % 20 == 0:
+                    print(f"  {i+1}/{len(texts)}")
+                
+                time.sleep(0.3)  # Rate limit
+                
+            except Exception as e:
+                print(f"Error: {e}")
+                results[text] = text
+        
+        return results
+
+
 class GoogleTranslatorFree:
     """Traductor Google Gratuito (sin API key)"""
     
@@ -250,6 +313,8 @@ def main():
     parser.add_argument('lang', help='Código de idioma (es, en, fr...)')
     parser.add_argument('--deepl', nargs='?', const='deepl', metavar='KEY',
                     help='API Key de DeepL (o variable DEEPL_KEY)')
+    parser.add_argument('--deeplx', action='store_true',
+                    help='Usar DeepLX (gratis, sin API key)')
     parser.add_argument('--google', action='store_true',
                     help='Usar Google Translate (gratis)')
     parser.add_argument('--output', '-o', help='Ruta de salida')
@@ -288,7 +353,22 @@ def main():
     # Translate
     translator = None
     
-    if args.google and GOOGLE_OK:
+    if args.deeplx:
+        # DeepLX (gratis, sin API key)
+        print(f"\nUsando DeepLX (gratis)...")
+        translator = DeepLXTranslator()
+        texts = [d['original'] for d in ext.results.values()]
+        translations = translator.translate(texts, args.lang)
+        
+        for key, data in ext.results.items():
+            orig = data['original']
+            if orig in translations:
+                data['translated'] = translations[orig]
+        
+        generate_translation_file(ext.results, out_path, lang_name)
+        print(f"\nTraducción completa!")
+        
+    elif args.google and GOOGLE_OK:
         # Google Translate (gratis)
         print(f"\nUsando Google Translate...")
         translator = GoogleTranslatorFree()
@@ -328,7 +408,7 @@ def main():
             print(" Instala con: pip install deepl")
         else:
             print("\nSin traductor automático.")
-            print(" Usa --google (gratis) o --deepl TU_KEY")
+            print(" Usa --deeplx (gratis), --google (gratis), o --deepl TU_KEY")
         
         generate_translation_file(ext.results, out_path, lang_name)
         print(f"\nArchivos generados.")
