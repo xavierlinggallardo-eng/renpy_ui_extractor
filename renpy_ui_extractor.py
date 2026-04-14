@@ -323,11 +323,11 @@ class GUIController:
         main_frame = ttk.Frame(self.root, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="📁 Ruta del Juego:", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
+        ttk.Label(main_frame, text="📁 Ruta del Juego (exe):", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
         path_frame = ttk.Frame(main_frame)
         path_frame.pack(fill=tk.X, pady=(0,15))
         ttk.Entry(path_frame, textvariable=self.game_path, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(path_frame, text="📂", command=self._browse_folder, width=5).pack(side=tk.LEFT, padx=(5,0))
+        ttk.Button(path_frame, text="📂", command=self._browse_exe, width=5).pack(side=tk.LEFT, padx=(5,0))
         
         ttk.Label(main_frame, text="🌍 Idioma objetivo:", font=("Arial", 11, "bold")).pack(anchor=tk.W, pady=(0,5))
         lang_frame = ttk.Frame(main_frame)
@@ -379,10 +379,15 @@ class GUIController:
             self.endpoint_frame.pack_forget()
             self.deepl_key_frame.pack_forget()
     
-    def _browse_folder(self):
-        folder = filedialog.askdirectory(initialdir=self.game_path.get())
-        if folder:
-            self.game_path.set(folder)
+    def _browse_exe(self):
+        exe = filedialog.askopenfilename(
+            initialdir=self.game_path.get(),
+            title="Seleccionar archivo exe del juego",
+            filetypes=[("Ejecutable", "*.exe"), ("Todos los archivos", "*.*")]
+        )
+        if exe:
+            game_folder = os.path.dirname(os.path.abspath(exe))
+            self.game_path.set(game_folder)
     
     def _start_translation(self):
         if not self.game_path.get():

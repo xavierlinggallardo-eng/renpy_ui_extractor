@@ -9,7 +9,7 @@ python renpy_ui_extractor.py --gui
 ```
 
 La GUI te permite:
-- Seleccionar carpeta del juego con un clic
+- Seleccionar el archivo .exe del juego con un clic (detecta la carpeta automáticamente)
 - Elegir idioma objetivo
 - Elegir motor de traducción
 - Ver progreso en tiempo real
